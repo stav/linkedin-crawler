@@ -70,14 +70,18 @@ class LinkedInCrawler {
             await this.page.goto(url);
             
             // Wait for search results to load
-            await this.page.waitForSelector('.search-results-container');
+            try {
+                await this.page.waitForSelector('.search-results-container', { timeout: 6000 });
+            } catch (error) {
+                console.log('Timeout waiting for search results to load, continuing.');
+            }
             
             // Extract search results
-            const results = await this.page.$$eval('.search-results-container', (elements) => {
+            const results = await this.page.$$eval('.search-results-container>div:nth-child(3) ul>li', (elements) => {
                 return elements.map(element => {
-                    const nameElement = element.querySelector('.entity-result__title-text');
-                    const titleElement = element.querySelector('.entity-result__primary-subtitle');
-                    const locationElement = element.querySelector('.entity-result__secondary-subtitle');
+                    const nameElement = element;
+                    const titleElement = element.closest('.entity-result')?.querySelector('.entity-result__primary-subtitle');
+                    const locationElement = element.closest('.entity-result')?.querySelector('.entity-result__secondary-subtitle');
                     
                     return {
                         name: nameElement ? nameElement.textContent?.trim() || '' : '',
