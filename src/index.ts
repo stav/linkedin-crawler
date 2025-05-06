@@ -60,45 +60,6 @@ class LinkedInCrawler {
         }
     }
 
-    async searchPeople(keyword: string): Promise<SearchResult[]> {
-        try {
-            if (!this.page) throw new Error('Page not initialized');
-
-            // Navigate to search page
-            const url = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(keyword)}`;
-            console.log('Navigating to:', url);
-            await this.page.goto(url);
-            
-            // Wait for search results to load
-            try {
-                await this.page.waitForSelector('.search-results-container', { timeout: 6000 });
-            } catch (error) {
-                console.log('Timeout waiting for search results to load, continuing.');
-            }
-            
-            // Extract search results
-            const results = await this.page.$$eval('.search-results-container>div:nth-child(3) ul>li', (elements) => {
-                return elements.map(element => {
-                    const nameElement = element;
-                    const titleElement = element.closest('.entity-result')?.querySelector('.entity-result__primary-subtitle');
-                    const locationElement = element.closest('.entity-result')?.querySelector('.entity-result__secondary-subtitle');
-                    
-                    return {
-                        name: nameElement ? nameElement.textContent?.trim() || '' : '',
-                        title: titleElement ? titleElement.textContent?.trim() || '' : '',
-                        location: locationElement ? locationElement.textContent?.trim() || '' : '',
-                        profileUrl: nameElement?.querySelector('a')?.href || ''
-                    };
-                });
-            });
-            
-            return results;
-        } catch (error) {
-            console.error('Error during people search:', error);
-            throw error;
-        }
-    }
-
     async salesNavigator(searchId: string, page: number): Promise<SearchResult[]> {
         try {
             if (!this.page) throw new Error('Page not initialized');
@@ -155,9 +116,6 @@ async function main(): Promise<void> {
         await crawler.login();
         
         const searchId = process.env.LINKEDIN_SEARCH_ID || '';
-        
-        // Example: Search for people with "Software Engineer" in their profile
-        // const results = await crawler.searchPeople('Software Engineer');
         const results = await crawler.salesNavigator(searchId, 2);
         console.log('Search Results:', results);
         
