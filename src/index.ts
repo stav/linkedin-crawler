@@ -1,9 +1,15 @@
+import { access } from 'fs/promises';
+import path from 'path';
+
+import dotenv from 'dotenv';
+
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
-import dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();
+
+const STORAGE_STATE_PATH = path.join(process.cwd(), 'linkedin-state.json');
 
 interface SearchResult {
   name: string;
@@ -25,7 +31,18 @@ class LinkedInCrawler {
 
   async initialize(): Promise<void> {
     this.browser = await chromium.launch({ headless: false });
-    this.context = await this.browser.newContext();
+
+    // Try to load existing state if available
+    try {
+      await access(STORAGE_STATE_PATH);
+      console.log('Loading existing session state...');
+      this.context = await this.browser.newContext({
+        storageState: STORAGE_STATE_PATH,
+      });
+    } catch {
+      this.context = await this.browser.newContext();
+    }
+
     this.page = await this.context.newPage();
     console.log('Initialized browser');
   }
@@ -33,6 +50,17 @@ class LinkedInCrawler {
   async login(): Promise<void> {
     try {
       if (!this.page) throw new Error('Page not initialized');
+
+      // Check if we're already logged in
+      await this.page.goto('https://www.linkedin.com/feed/');
+      const isLoggedIn = await this.page.evaluate(() => {
+        return !document.querySelector('#username');
+      });
+
+      if (isLoggedIn) {
+        console.log('Already logged in, skipping login process');
+        return;
+      }
 
       await this.page.goto('https://www.linkedin.com/login');
 
@@ -51,6 +79,12 @@ class LinkedInCrawler {
         await this.page.waitForLoadState('networkidle', { timeout: 10000 });
       } catch (error) {
         console.log('Timeout waiting for page load after login, continuing...');
+      }
+
+      // Save the storage state after successful login
+      if (this.context) {
+        await this.context.storageState({ path: STORAGE_STATE_PATH });
+        console.log('Session state saved successfully');
       }
 
       console.log('Successfully logged in to LinkedIn');

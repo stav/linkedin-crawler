@@ -16,3 +16,6 @@ out/
 .next/
 .nuxt/
 .output/
+
+# Linkedin state
+linkedin-state.json
