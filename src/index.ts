@@ -27,6 +27,7 @@ class LinkedInCrawler {
         this.browser = await chromium.launch({ headless: false });
         this.context = await this.browser.newContext();
         this.page = await this.context.newPage();
+        console.log('Initialized browser');
     }
 
     async login(): Promise<void> {
@@ -46,7 +47,11 @@ class LinkedInCrawler {
             await this.page.click('button[type="submit"]');
             
             // Wait for navigation after login
-            await this.page.waitForLoadState('networkidle');
+            try {
+                await this.page.waitForLoadState('networkidle', { timeout: 10000 });
+            } catch (error) {
+                console.log('Timeout waiting for page load after login, continuing...');
+            }
             
             console.log('Successfully logged in to LinkedIn');
         } catch (error) {
@@ -60,13 +65,15 @@ class LinkedInCrawler {
             if (!this.page) throw new Error('Page not initialized');
 
             // Navigate to search page
-            await this.page.goto(`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(keyword)}`);
+            const url = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(keyword)}`;
+            console.log('Navigating to:', url);
+            await this.page.goto(url);
             
             // Wait for search results to load
-            await this.page.waitForSelector('.reusable-search__result-container');
+            await this.page.waitForSelector('.search-results-container');
             
             // Extract search results
-            const results = await this.page.$$eval('.reusable-search__result-container', (elements) => {
+            const results = await this.page.$$eval('.search-results-container', (elements) => {
                 return elements.map(element => {
                     const nameElement = element.querySelector('.entity-result__title-text');
                     const titleElement = element.querySelector('.entity-result__primary-subtitle');
