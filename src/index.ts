@@ -44,6 +44,10 @@ class LinkedInCrawler {
     }
 
     this.page = await this.context.newPage();
+
+    // Add console logging to the page
+    // this.page.on('console', msg => console.log('Browser console:', msg.text()));
+
     console.log('Initialized browser');
   }
 
@@ -117,31 +121,57 @@ class LinkedInCrawler {
       }
 
       // Extract search results
-      const results = await this.page.$$eval(
-        '#search-results-container>.relative>ol>li',
+      return await this.page.$$eval(
+        '#search-results-container > div.relative > ol > li',
         (elements) => {
-          return elements.map((element) => {
-            const nameElement = element;
-            const titleElement = element.querySelector(
-              '.artdeco-entity-lockup__title'
-            );
-            const locationElement = element.querySelector(
-              '.artdeco-entity-lockup__caption'
-            );
+          return elements
+            .map((element) => {
+              // Skip loading placeholders
+              if (element.querySelector('article[aria-hidden="true"]')) {
+                return null;
+              }
 
-            return {
-              name: nameElement ? nameElement.textContent?.trim() || '' : '',
-              title: titleElement ? titleElement.textContent?.trim() || '' : '',
-              location: locationElement
+              const nameElement = element.querySelector(
+                '.artdeco-entity-lockup__title span[data-anonymize="person-name"]'
+              );
+              const titleElement = element.querySelector(
+                '.artdeco-entity-lockup__subtitle span[data-anonymize="title"]'
+              );
+              const companyElement = element.querySelector(
+                '.artdeco-entity-lockup__subtitle a[data-anonymize="company-name"]'
+              );
+              const locationElement = element.querySelector(
+                '.artdeco-entity-lockup__caption span[data-anonymize="location"]'
+              );
+              const linkElement = element.querySelector(
+                '.artdeco-entity-lockup__title a'
+              ) as HTMLAnchorElement;
+
+              // Get the text content and clean it up
+              const name = nameElement
+                ? nameElement.textContent?.trim() || ''
+                : '';
+              const title = titleElement
+                ? titleElement.textContent?.trim() || ''
+                : '';
+              const company = companyElement
+                ? companyElement.textContent?.trim() || ''
+                : '';
+              const location = locationElement
                 ? locationElement.textContent?.trim() || ''
-                : '',
-              profileUrl: nameElement?.querySelector('a')?.href || '',
-            };
-          });
+                : '';
+              const profileUrl = linkElement?.href || '';
+
+              return {
+                name,
+                title: `${title} at ${company}`.trim(),
+                location,
+                profileUrl,
+              };
+            })
+            .filter((result) => result !== null); // Remove null entries
         }
       );
-
-      return results;
     } catch (error) {
       console.error('Error during people search:', error);
       throw error;
@@ -164,7 +194,7 @@ async function main(): Promise<void> {
 
     const searchId = process.env.LINKEDIN_SEARCH_ID || '';
     const results = await crawler.salesNavigator(searchId, 2);
-    console.log('Search Results:', results);
+    console.log('Results:', results);
   } catch (error) {
     console.error('Error in main:', error);
   } finally {
