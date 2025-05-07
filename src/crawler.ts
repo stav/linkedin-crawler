@@ -12,6 +12,7 @@ export interface SearchResult {
   company: {
     name: string;
     url: string;
+    website?: string;
   };
   location: string;
   profileUrl: string;
@@ -165,6 +166,43 @@ export class LinkedInCrawler {
     await this.page.waitForTimeout(2000);
   }
 
+  private async extractCompanyWebsiteUrl(
+    companyUrl: string
+  ): Promise<string> {
+    if (!this.page) throw new Error('Page not initialized');
+    if (!companyUrl) return '';
+
+    const selector = 'a[data-control-name="visit_company_website"]';
+
+    try {
+      // Navigate to company page
+      await this.page.goto(companyUrl);
+      
+      try {
+        // Wait for the website link to be visible
+        await this.page.waitForSelector(selector, { timeout: 10000 });
+        
+        // Look for the website URL in the company overview section
+        const website = await this.page.evaluate((sel) => {
+          // Try to find the website link in the company overview section
+          const $website = document.querySelector(sel);
+          return $website?.getAttribute('href') || '';
+        }, selector);
+
+        return website;
+      } catch (error: any) {
+        if (error?.name === 'TimeoutError') {
+          console.log('Timeout waiting for website link, skipping company');
+          return '';
+        }
+        throw error; // Re-throw other errors
+      }
+    } catch (error) {
+      console.error('Error extracting company website URL:', error);
+      return '';
+    }
+  }
+
   async salesNavigator(
     searchId: string,
     startPage: number = 1,
@@ -236,11 +274,16 @@ export class LinkedInCrawler {
                   companyName = $companyAnchor.textContent?.trim() || '';
                 } else if ($companyText) {
                   // Get all text nodes and filter out the title
-                  const $title = $companyText.querySelector('span[data-anonymize="title"]');
+                  const $title = $companyText.querySelector(
+                    'span[data-anonymize="title"]'
+                  );
                   const titleText = $title?.textContent?.trim() || '';
                   const fullText = $companyText.textContent?.trim() || '';
                   // Remove the title and any separators to get just the company name
-                  companyName = fullText.replace(titleText, '').replace(/^[·\s]+|[·\s]+$/g, '').trim();
+                  companyName = fullText
+                    .replace(titleText, '')
+                    .replace(/^[·\s]+|[·\s]+$/g, '')
+                    .trim();
                 }
 
                 return {
@@ -283,6 +326,20 @@ export class LinkedInCrawler {
 
         // Add a small delay between page loads to avoid rate limiting
         await this.page.waitForTimeout(2000);
+      }
+
+      // Extract company website URLs for results with company URLs
+      for (const result of this.allResults) {
+        if (result.company.url) {
+          console.log(
+            `Extracting website URL for company: ${result.company.name}`
+          );
+          result.company.website = await this.extractCompanyWebsiteUrl(
+            result.company.url
+          );
+          // Add a small delay between requests to avoid rate limiting
+          await this.page?.waitForTimeout(2000);
+        }
       }
     } catch (error) {
       console.error('Error during people search:', error);
