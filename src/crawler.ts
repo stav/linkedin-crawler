@@ -1,4 +1,4 @@
-import { access } from 'fs/promises';
+import { access, writeFile } from 'fs/promises';
 import path from 'path';
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
@@ -10,17 +10,24 @@ export interface SearchResult {
   title: string;
   location: string;
   profileUrl: string;
+  page: number;
 }
 
 export class LinkedInCrawler {
   private browser: Browser | null;
   private context: BrowserContext | null;
   private page: Page | null;
+  private allResults: SearchResult[];
 
   constructor() {
     this.browser = null;
     this.context = null;
     this.page = null;
+    this.allResults = [];
+  }
+
+  get numResults(): number {
+    return this.allResults.length;
   }
 
   async initialize(): Promise<void> {
@@ -149,11 +156,11 @@ export class LinkedInCrawler {
     searchId: string,
     startPage: number = 1,
     endPage: number = 8
-  ): Promise<SearchResult[]> {
+  ): Promise<void> {
     try {
       if (!this.page) throw new Error('Page not initialized');
 
-      const allResults: SearchResult[] = [];
+      this.allResults = [];
       let currentPage = startPage;
 
       while (currentPage <= endPage) {
@@ -183,7 +190,7 @@ export class LinkedInCrawler {
         // Extract search results from current page
         const pageResults = await this.page.$$eval(
           '#search-results-container > div.relative > ol > li',
-          (elements) => {
+          (elements, pageNum) => {
             return elements
               .map((element) => {
                 // Skip loading placeholders
@@ -227,14 +234,16 @@ export class LinkedInCrawler {
                   title: `${title} at ${company}`.trim(),
                   location,
                   profileUrl,
+                  page: pageNum,
                 };
               })
               .filter((result) => result !== null); // Remove null entries
-          }
+          },
+          currentPage
         );
 
         // Add results from current page to all results
-        allResults.push(...pageResults);
+        this.allResults.push(...pageResults);
         console.log(
           `Loaded ${pageResults.length} results from page ${currentPage}`
         );
@@ -257,13 +266,46 @@ export class LinkedInCrawler {
         // Add a small delay between page loads to avoid rate limiting
         await this.page.waitForTimeout(1000);
       }
-
-      console.log(`Total results collected: ${allResults.length}`);
-      return allResults;
     } catch (error) {
       console.error('Error during people search:', error);
       throw error;
     }
+  }
+
+  async writeResultsToFile(filePath: string): Promise<void> {
+    try {
+      const data = JSON.stringify(this.allResults, null, 2);
+      await writeFile(filePath, data, 'utf-8');
+      console.log(`Results written to ${filePath}`);
+    } catch (error) {
+      console.error('Error writing results to file:', error);
+      throw error;
+    }
+  }
+
+  displayResults(): void {
+    // Group results by page
+    const resultsByPage = this.allResults.reduce((acc, result) => {
+      if (!acc[result.page]) {
+        acc[result.page] = [];
+      }
+      acc[result.page].push(result);
+      return acc;
+    }, {} as Record<number, SearchResult[]>);
+
+    // Display results grouped by page
+    console.log('\nSearch Results:');
+    console.log('==============');
+    Object.entries(resultsByPage).forEach(([page, pageResults]) => {
+      console.log(`\nPage ${page} (${pageResults.length} results):`);
+      console.log('-------------------');
+      pageResults.forEach((result, index) => {
+        console.log(`\n${index + 1}. ${result.name}`);
+        console.log(`   Title: ${result.title}`);
+        console.log(`   Location: ${result.location}`);
+        console.log(`   Profile: ${result.profileUrl}`);
+      });
+    });
   }
 
   async close(): Promise<void> {

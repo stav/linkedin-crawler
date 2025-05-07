@@ -10,8 +10,9 @@ async function main(): Promise<void> {
   try {
     await crawler.initialize();
     await crawler.login();
-    const results = await crawler.salesNavigator(searchId, 1, 1);
-    console.log('Results:', results);
+    await crawler.salesNavigator(searchId, 3, 3);
+    console.log('Total results found:', crawler.numResults);
+    await crawler.writeResultsToFile('results.json');
   } catch (error) {
     console.error('Error in main:', error);
   } finally {

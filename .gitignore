@@ -17,5 +17,6 @@ out/
 .nuxt/
 .output/
 
-# Linkedin state
+# state files
 linkedin-state.json
+results.json
