@@ -201,6 +201,15 @@ export class LinkedInCrawler {
     }
   }
 
+  private async onLastPage(): Promise<boolean> {
+    // Check if we've reached the last page
+    const hasNextPage = await this.page?.evaluate(() => {
+      const nextButton = document.querySelector('button[aria-label="Next"]');
+      return nextButton && !nextButton.hasAttribute('disabled');
+    });
+    return !hasNextPage;
+  }
+
   async salesNavigator(
     searchId: string,
     startPage: number = 1,
@@ -210,9 +219,8 @@ export class LinkedInCrawler {
       if (!this.page) throw new Error('Page not initialized');
 
       this.allResults = [];
-      let currentPage = startPage;
 
-      while (currentPage <= endPage) {
+      for (let currentPage = startPage; currentPage <= endPage; currentPage++) {
         // Navigate to search page
         const url = `https://www.linkedin.com/sales/search/people?page=${currentPage}&savedSearchId=${searchId}`;
 
@@ -307,20 +315,10 @@ export class LinkedInCrawler {
           `Loaded ${pageResults.length} results from page ${currentPage}`
         );
 
-        // Check if we've reached the last page
-        const hasNextPage = await this.page.evaluate(() => {
-          const nextButton = document.querySelector(
-            'button[aria-label="Next"]'
-          );
-          return nextButton && !nextButton.hasAttribute('disabled');
-        });
-
-        if (!hasNextPage) {
+        if (await this.onLastPage()) {
           console.log('Reached last page');
           break;
         }
-
-        currentPage++;
 
         // Add a small delay between page loads to avoid rate limiting
         await this.page.waitForTimeout(2000);
