@@ -1,7 +1,8 @@
-import { access, writeFile } from 'fs/promises';
+import { access } from 'fs/promises';
 import path from 'path';
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
+import { writeSearchResultsToFile, displaySearchResults } from './utils';
 
 const STORAGE_STATE_PATH = path.join(process.cwd(), 'linkedin-state.json');
 
@@ -281,39 +282,11 @@ export class LinkedInCrawler {
   }
 
   async writeResultsToFile(filePath: string): Promise<void> {
-    try {
-      const data = JSON.stringify(this.allResults, null, 2);
-      await writeFile(filePath, data, 'utf-8');
-      console.log(`Results written to ${filePath}`);
-    } catch (error) {
-      console.error('Error writing results to file:', error);
-      throw error;
-    }
+    await writeSearchResultsToFile(this.allResults, filePath);
   }
 
   displayResults(): void {
-    // Group results by page
-    const resultsByPage = this.allResults.reduce((acc, result) => {
-      if (!acc[result.page]) {
-        acc[result.page] = [];
-      }
-      acc[result.page].push(result);
-      return acc;
-    }, {} as Record<number, SearchResult[]>);
-
-    // Display results grouped by page
-    console.log('\nSearch Results:');
-    console.log('==============');
-    Object.entries(resultsByPage).forEach(([page, pageResults]) => {
-      console.log(`\nPage ${page} (${pageResults.length} results):`);
-      console.log('-------------------');
-      pageResults.forEach((result, index) => {
-        console.log(`\n${index + 1}. ${result.name}`);
-        console.log(`   Title: ${result.title}`);
-        console.log(`   Location: ${result.location}`);
-        console.log(`   Profile: ${result.profileUrl}`);
-      });
-    });
+    displaySearchResults(this.allResults);
   }
 
   async close(): Promise<void> {
