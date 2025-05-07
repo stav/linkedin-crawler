@@ -9,6 +9,10 @@ const STORAGE_STATE_PATH = path.join(process.cwd(), 'linkedin-state.json');
 export interface SearchResult {
   name: string;
   title: string;
+  company: {
+    name: string;
+    url: string;
+  };
   location: string;
   profileUrl: string;
   page: number;
@@ -207,42 +211,47 @@ export class LinkedInCrawler {
                   return null;
                 }
 
-                const nameElement = element.querySelector(
+                const $name = element.querySelector(
                   '.artdeco-entity-lockup__title span[data-anonymize="person-name"]'
                 );
-                const titleElement = element.querySelector(
+                const $title = element.querySelector(
                   '.artdeco-entity-lockup__subtitle span[data-anonymize="title"]'
                 );
-                const companyElement = element.querySelector(
+                const $companyAnchor = element.querySelector(
                   '.artdeco-entity-lockup__subtitle a[data-anonymize="company-name"]'
+                ) as HTMLAnchorElement | null;
+                const $companyText = element.querySelector(
+                  '.artdeco-entity-lockup__subtitle'
                 );
-                const locationElement = element.querySelector(
+                const $location = element.querySelector(
                   '.artdeco-entity-lockup__caption span[data-anonymize="location"]'
                 );
-                const linkElement = element.querySelector(
+                const $link = element.querySelector(
                   '.artdeco-entity-lockup__title a'
                 ) as HTMLAnchorElement;
 
-                // Get the text content and clean it up
-                const name = nameElement
-                  ? nameElement.textContent?.trim() || ''
-                  : '';
-                const title = titleElement
-                  ? titleElement.textContent?.trim() || ''
-                  : '';
-                const company = companyElement
-                  ? companyElement.textContent?.trim() || ''
-                  : '';
-                const location = locationElement
-                  ? locationElement.textContent?.trim() || ''
-                  : '';
-                const profileUrl = linkElement?.href || '';
+                // Get company name from either the anchor tag or the text content
+                let companyName = '';
+                if ($companyAnchor) {
+                  companyName = $companyAnchor.textContent?.trim() || '';
+                } else if ($companyText) {
+                  // Get all text nodes and filter out the title
+                  const $title = $companyText.querySelector('span[data-anonymize="title"]');
+                  const titleText = $title?.textContent?.trim() || '';
+                  const fullText = $companyText.textContent?.trim() || '';
+                  // Remove the title and any separators to get just the company name
+                  companyName = fullText.replace(titleText, '').replace(/^[·\s]+|[·\s]+$/g, '').trim();
+                }
 
                 return {
-                  name,
-                  title: `${title} at ${company}`.trim(),
-                  location,
-                  profileUrl,
+                  name: $name?.textContent?.trim() || '',
+                  title: $title?.textContent?.trim() || '',
+                  company: {
+                    name: companyName,
+                    url: $companyAnchor?.href || '',
+                  },
+                  location: $location?.textContent?.trim() || '',
+                  profileUrl: $link?.href || '',
                   page: pageNum,
                 };
               })
@@ -273,7 +282,7 @@ export class LinkedInCrawler {
         currentPage++;
 
         // Add a small delay between page loads to avoid rate limiting
-        await this.page.waitForTimeout(1000);
+        await this.page.waitForTimeout(2000);
       }
     } catch (error) {
       console.error('Error during people search:', error);
