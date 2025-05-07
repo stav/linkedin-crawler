@@ -166,9 +166,7 @@ export class LinkedInCrawler {
     await this.page.waitForTimeout(2000);
   }
 
-  private async extractCompanyWebsiteUrl(
-    companyUrl: string
-  ): Promise<string> {
+  private async extractCompanyWebsiteUrl(companyUrl: string): Promise<string> {
     if (!this.page) throw new Error('Page not initialized');
     if (!companyUrl) return '';
 
@@ -177,11 +175,11 @@ export class LinkedInCrawler {
     try {
       // Navigate to company page
       await this.page.goto(companyUrl);
-      
+
       try {
         // Wait for the website link to be visible
         await this.page.waitForSelector(selector, { timeout: 10000 });
-        
+
         // Look for the website URL in the company overview section
         const website = await this.page.evaluate((sel) => {
           // Try to find the website link in the company overview section
