@@ -19,4 +19,4 @@ out/
 
 # state files
 linkedin-state.json
-results.json
+results*.json

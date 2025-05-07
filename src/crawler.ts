@@ -12,7 +12,7 @@ export interface SearchResult {
   company: {
     name: string;
     url: string;
-    website?: string;
+    website: string;
   };
   location: string;
   profileUrl: string;
@@ -244,8 +244,10 @@ export class LinkedInCrawler {
         );
         await this.waitForLazyLoadedContent();
 
+        const onLastPage = await this.onLastPage();
+
         // Extract search results from current page
-        const pageResults = await this.page.$$eval(
+        const pageResults: SearchResult[] = await this.page.$$eval(
           '#search-results-container > div.relative > ol > li',
           (elements, pageNum) => {
             return elements
@@ -298,6 +300,7 @@ export class LinkedInCrawler {
                   company: {
                     name: companyName,
                     url: $companyAnchor?.href || '',
+                    website: '',
                   },
                   location: $location?.textContent?.trim() || '',
                   profileUrl: $link?.href || '',
@@ -309,13 +312,38 @@ export class LinkedInCrawler {
           currentPage
         );
 
-        // Add results from current page to all results
-        this.allResults.push(...pageResults);
         console.log(
           `Loaded ${pageResults.length} results from page ${currentPage}`
         );
 
-        if (await this.onLastPage()) {
+        // Write results to file
+        const filePath = `results_page_${currentPage
+          .toString()
+          .padStart(3, '0')}.json`;
+        await writeSearchResultsToFile(pageResults, filePath);
+
+        // Extract company website URLs for results with company URLs
+        for (const result of pageResults) {
+          if (result.company.url) {
+            console.log(
+              `Extracting page ${result.page} website URL for: ${result.company.name} (${result.name})`
+            );
+            result.company.website = await this.extractCompanyWebsiteUrl(
+              result.company.url
+            );
+            // Add a small delay between requests to avoid rate limiting
+            await this.page?.waitForTimeout(2000);
+          }
+        }
+
+        // Write results to file again to include the website
+        await writeSearchResultsToFile(pageResults, filePath);
+
+        // Add results from current page to all results
+        this.allResults.push(...pageResults);
+
+        // Check if we've reached the last page
+        if (onLastPage) {
           console.log('Reached last page');
           break;
         }
@@ -323,28 +351,10 @@ export class LinkedInCrawler {
         // Add a small delay between page loads to avoid rate limiting
         await this.page.waitForTimeout(2000);
       }
-
-      // Extract company website URLs for results with company URLs
-      for (const result of this.allResults) {
-        if (result.company.url) {
-          console.log(
-            `Extracting website URL for company: ${result.company.name}`
-          );
-          result.company.website = await this.extractCompanyWebsiteUrl(
-            result.company.url
-          );
-          // Add a small delay between requests to avoid rate limiting
-          await this.page?.waitForTimeout(2000);
-        }
-      }
     } catch (error) {
       console.error('Error during people search:', error);
       throw error;
     }
-  }
-
-  async writeResultsToFile(filePath: string): Promise<void> {
-    await writeSearchResultsToFile(this.allResults, filePath);
   }
 
   displayResults(): void {
