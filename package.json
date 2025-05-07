@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "LinkedIn crawler using Playwright",
   "packageManager": "bun@1.2.12",
-  "main": "src/index.js",
+  "main": "src/main.ts",
   "type": "module",
   "scripts": {
-    "start": "bun run src/index.ts"
+    "start": "bun run src/main.ts"
   },
   "dependencies": {
     "dotenv": "^16.5.0",
