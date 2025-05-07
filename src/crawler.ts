@@ -104,15 +104,21 @@ export class LinkedInCrawler {
 
     // Wait for the container to be available
     try {
-      await this.page.waitForSelector('#search-results-container', { timeout: 10000 });
+      await this.page.waitForSelector('#search-results-container', {
+        timeout: 10000,
+      });
       await this.page.waitForTimeout(2000);
     } catch (error) {
-      console.log('Timeout waiting for search results container, continuing...');
+      console.log(
+        'Timeout waiting for search results container, continuing...'
+      );
     }
 
     // Set up Intersection Observer to trigger lazy loading
     await this.page.evaluate(() => {
-      const container = document.querySelector('#search-results-container') as HTMLElement;
+      const container = document.querySelector(
+        '#search-results-container'
+      ) as HTMLElement;
       if (!container) return;
 
       const observer = new IntersectionObserver(
@@ -130,7 +136,9 @@ export class LinkedInCrawler {
         { root: container, threshold: 0.1, rootMargin: '100px' }
       );
 
-      container.querySelectorAll('li').forEach(item => observer.observe(item));
+      container
+        .querySelectorAll('li')
+        .forEach((item) => observer.observe(item));
     });
 
     // Scroll through the container once
