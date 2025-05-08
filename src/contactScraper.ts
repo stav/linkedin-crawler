@@ -25,7 +25,8 @@ interface LinkedInContact {
 }
 
 // Regular expression for phone numbers
-const PHONE_REGEX = /(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})(?: *x\d+)?/g;
+const PHONE_REGEX =
+  /(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})(?: *x\d+)?/g;
 
 // Simple email regex as fallback
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
@@ -55,30 +56,36 @@ async function extractContactInfo(url: string, retryCount = 0): Promise<ContactI
     await Promise.race([
       page.goto(url, { 
         waitUntil: 'domcontentloaded',
-        timeout: PAGE_LOAD_TIMEOUT
+        timeout: PAGE_LOAD_TIMEOUT,
       }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Page load timeout')), PAGE_LOAD_TIMEOUT)
-      )
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Page load timeout')),
+          PAGE_LOAD_TIMEOUT
+        )
+      ),
     ]);
-    
+
     // Get the page content with a timeout
-    const content = await Promise.race([
+    const content = (await Promise.race([
       page.content(),
-      new Promise<string>((_, reject) => 
-        setTimeout(() => reject(new Error('Content extraction timeout')), PAGE_LOAD_TIMEOUT)
-      )
-    ]) as string;
-    
+      new Promise<string>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Content extraction timeout')),
+          PAGE_LOAD_TIMEOUT
+        )
+      ),
+    ])) as string;
+
     // Extract emails using both methods
     let emails: string[] = [];
-    
+
     try {
       // Try the email-addresses package first
       const emailMatches = emailAddresses.parseAddressList(content);
       if (emailMatches) {
         emails = emailMatches
-          .map(match => {
+          .map((match) => {
             if ('address' in match) {
               return match.address;
             }
@@ -87,47 +94,62 @@ async function extractContactInfo(url: string, retryCount = 0): Promise<ContactI
           .filter((email): email is string => email !== null);
       }
     } catch (error) {
-      console.log(`Email parsing error for ${url}: ${error instanceof Error ? error.message : String(error)}`);
+      console.log(
+        `Email parsing error for ${url}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
-    
+
     // If no emails found, try the regex as fallback
     if (emails.length === 0) {
       try {
         const emailMatches = content.matchAll(EMAIL_REGEX);
         emails = Array.from(emailMatches)
-          .map(match => (match as RegExpMatchArray)[0])
-          .filter(email => email.length > 0);
+          .map((match) => (match as RegExpMatchArray)[0])
+          .filter((email) => email.length > 0);
       } catch (error) {
-        console.log(`Regex email parsing error for ${url}: ${error instanceof Error ? error.message : String(error)}`);
+        console.log(
+          `Regex email parsing error for ${url}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
     }
-    
+
     // Remove duplicates
     emails = [...new Set(emails)];
-    
+
     // Extract phone numbers
     let phones: string[] = [];
     try {
       const phoneMatches = content.matchAll(PHONE_REGEX);
       phones = Array.from(phoneMatches)
-        .map(match => match[0])
-        .filter(phone => phone.length >= 10); // Basic validation
+        .map((match) => match[0])
+        .filter((phone) => phone.length >= 10); // Basic validation
     } catch (error) {
-      console.log(`Phone parsing error for ${url}: ${error instanceof Error ? error.message : String(error)}`);
+      console.log(
+        `Phone parsing error for ${url}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
-    
+
     // Remove duplicates from phones
     const uniquePhones = [...new Set(phones)];
-    
+
     return { emails, phones: uniquePhones };
   } catch (error) {
-    console.error(`Error scraping ${url}:`, error instanceof Error ? error.message : String(error));
-    
+    console.error(
+      `Error scraping ${url}:`,
+      error instanceof Error ? error.message : String(error)
+    );
+
     // Retry logic
     if (retryCount < MAX_RETRIES) {
-      console.log(`Retrying ${url} (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-      return extractContactInfo(url, retryCount + 1);
+      console.log(
+        `Retrying ${url} (attempt ${retryCount + 1}/${MAX_RETRIES})...`
+      );
     }
     
     return { emails: [], phones: [] };
@@ -169,7 +191,11 @@ async function processJsonFile(filePath: string): Promise<void> {
           await fs.writeFile(filePath, JSON.stringify(data, null, 2));
           console.log(`Updated ${filePath} with results for ${item.company.name}`);
         } catch (error) {
-          console.error(`Failed to process ${item.company.website}: ${error instanceof Error ? error.message : String(error)}`);
+          console.error(
+            `Failed to process ${item.company.website}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
           // Add empty contact info to indicate failure
           item.company.contactInfo = { emails: [], phones: [] };
           // Still write the file to maintain progress
@@ -183,7 +209,10 @@ async function processJsonFile(filePath: string): Promise<void> {
     
     console.log(`Finished processing ${filePath}`);
   } catch (error) {
-    console.error(`Error processing file ${filePath}:`, error instanceof Error ? error.message : String(error));
+    console.error(
+      `Error processing file ${filePath}:`,
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }
 
