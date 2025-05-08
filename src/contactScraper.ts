@@ -22,6 +22,7 @@ interface LinkedInContact {
   location: string;
   profileUrl: string;
   page: number;
+  crawledDateTime?: string[];  // Array of ISO timestamps for each crawl
 }
 
 // Regular expression for phone numbers
@@ -106,6 +107,16 @@ async function safeWriteFile(filePath: string, data: any): Promise<void> {
   } finally {
     fileMutex.release();
   }
+}
+
+// Helper function to get formatted timestamp
+function getTimestamp(): string {
+  return new Date().toISOString();
+}
+
+// Helper function for logging with timestamp
+function logWithTimestamp(message: string): void {
+  console.log(`[${getTimestamp()}] ${message}`);
 }
 
 async function extractContactInfo(
@@ -233,9 +244,7 @@ async function processBatch(
   const promises = items.map(async (item) => {
     if (!item.company?.website) return;
 
-    console.log(
-      `Processing ${item.company.name} (${item.company.website})...`
-    );
+    logWithTimestamp(`Processing ${item.company.name} (${item.company.website})...`);
 
     try {
       const contactInfo = await Promise.race([
@@ -251,22 +260,20 @@ async function processBatch(
       // Only update and save if we got some data
       if (contactInfo.emails.length > 0 || contactInfo.phones.length > 0) {
         item.company.contactInfo = contactInfo;
+        // Initialize crawledDateTime array if it doesn't exist
+        if (!item.crawledDateTime) {
+          item.crawledDateTime = [];
+        }
+        // Add current timestamp
+        item.crawledDateTime.push(getTimestamp());
         // Save progress only when we have actual data
         await safeWriteFile(filePath, data);
-        console.log(
-          `Updated ${filePath} with results for ${item.company.name}`
-        );
+        logWithTimestamp(`Updated ${filePath} with results for ${item.company.name}`);
       } else {
-        console.log(
-          `No contact info found for ${item.company.name}`
-        );
+        logWithTimestamp(`No contact info found for ${item.company.name}`);
       }
     } catch (error) {
-      console.error(
-        `Failed to process ${item.company.website}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      logWithTimestamp(`Failed to process ${item.company.website}: ${error instanceof Error ? error.message : String(error)}`);
       // Don't save empty contact info on errors
     }
   });
@@ -275,6 +282,9 @@ async function processBatch(
 }
 
 async function processJsonFile(filePath: string): Promise<void> {
+  const startTime = Date.now();
+  logWithTimestamp(`Starting to process ${filePath}...`);
+
   const browser = await chromium.launch({
     args: [
       '--disable-blink-features=AutomationControlled',
@@ -311,18 +321,18 @@ async function processJsonFile(filePath: string): Promise<void> {
       await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
       pagePool.push(page);
     } catch (error) {
-      console.error(`Failed to initialize page ${i + 1}:`, error instanceof Error ? error.message : String(error));
+      logWithTimestamp(`Failed to initialize page ${i + 1}: ${error instanceof Error ? error.message : String(error)}`);
       // If we can't initialize a page, we'll continue with fewer pages
     }
   }
 
   if (pagePool.length === 0) {
-    console.error('Failed to initialize any pages. Exiting...');
+    logWithTimestamp('Failed to initialize any pages. Exiting...');
     await browser.close();
     return;
   }
 
-  console.log(`Successfully initialized ${pagePool.length} pages`);
+  logWithTimestamp(`Successfully initialized ${pagePool.length} pages`);
 
   try {
     const json = await fs.readFile(filePath, 'utf-8');
@@ -349,56 +359,59 @@ async function processJsonFile(filePath: string): Promise<void> {
       }
     }
 
-    console.log(`Finished processing ${filePath}`);
+    const endTime = Date.now();
+    const duration = (endTime - startTime) / 1000; // Convert to seconds
+    logWithTimestamp(`Finished processing ${filePath} in ${duration.toFixed(2)} seconds`);
   } catch (error) {
-    console.error(
-      `Error processing file ${filePath}:`,
-      error instanceof Error ? error.message : String(error)
-    );
+    logWithTimestamp(`Error processing file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
-    console.log('Cleaning up browser resources...');
+    logWithTimestamp('Cleaning up browser resources...');
     try {
       // Close all pages first
       await Promise.all(pagePool.map(page => page.close().catch((e: Error) => 
-        console.log(`Error closing page: ${e.message}`)
+        logWithTimestamp(`Error closing page: ${e.message}`)
       )));
-      console.log('All pages closed');
+      logWithTimestamp('All pages closed');
       
       // Then close the browser
       await browser.close();
-      console.log('Browser closed successfully');
+      logWithTimestamp('Browser closed successfully');
     } catch (error) {
-      console.error('Error during cleanup:', error instanceof Error ? error.message : String(error));
+      logWithTimestamp(`Error during cleanup: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
 
 async function main() {
+  const startTime = Date.now();
   try {
     const args = process.argv.slice(2);
     if (args.length === 0) {
-      console.error('Please provide a filename as a command line argument');
-      console.error('Usage: ts-node contactScraper.ts <filename>');
+      logWithTimestamp('Please provide a filename as a command line argument');
+      logWithTimestamp('Usage: ts-node contactScraper.ts <filename>');
       process.exit(1);
     }
 
     const filename = args[0];
     if (!filename.startsWith('contacts_') || !filename.endsWith('.json')) {
-      console.error('Filename must start with "contacts_" and end with ".json"');
+      logWithTimestamp('Filename must start with "contacts_" and end with ".json"');
       process.exit(1);
     }
 
-    console.log(`Processing ${filename}...`);
+    logWithTimestamp(`Processing ${filename}...`);
     await processJsonFile(filename);
-    console.log('Script completed successfully');
+    
+    const endTime = Date.now();
+    const duration = (endTime - startTime) / 1000; // Convert to seconds
+    logWithTimestamp(`Script completed successfully in ${duration.toFixed(2)} seconds`);
     
     // Force exit after a short delay to ensure cleanup is complete
     setTimeout(() => {
-      console.log('Forcing process exit.');
+      logWithTimestamp('Forcing process exit.');
       process.exit(0);
     }, 1000);
   } catch (error) {
-    console.error('Fatal error:', error instanceof Error ? error.message : String(error));
+    logWithTimestamp(`Fatal error: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
 }
@@ -406,7 +419,7 @@ async function main() {
 // Mainline
 if (require.main === module) {
   main().catch((error) => {
-    console.error('Unhandled error:', error instanceof Error ? error.message : String(error));
+    logWithTimestamp(`Unhandled error: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   });
 }
