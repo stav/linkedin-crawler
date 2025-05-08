@@ -1,7 +1,12 @@
 import { chromium } from 'playwright';
 import * as emailAddresses from 'email-addresses';
 import fs from 'fs/promises';
-import path from 'path';
+import process from 'process';
+
+interface ContactInfo {
+  emails: string[];
+  phones: string[];
+}
 
 interface Company {
   name: string;
@@ -10,16 +15,13 @@ interface Company {
   contactInfo?: ContactInfo;
 }
 
-interface ContactInfo {
-  emails: string[];
-  phones: string[];
-}
-
-interface EmailMatch {
-  address: string | null;
-  name: string | null;
-  local: string;
-  domain: string;
+interface LinkedInContact {
+  name: string;
+  title: string;
+  company: Company;
+  location: string;
+  profileUrl: string;
+  page: number;
 }
 
 // Regular expression for phone numbers
@@ -140,13 +142,12 @@ async function extractContactInfo(url: string, retryCount = 0): Promise<ContactI
 
 async function processJsonFile(filePath: string): Promise<void> {
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    const data = JSON.parse(content);
-    const outputPath = filePath.replace('results_', 'contacts_');
+    const json = await fs.readFile(filePath, 'utf-8');
+    const data: LinkedInContact[] = JSON.parse(json);
     
     // Initialize the output file with the original data
-    await fs.writeFile(outputPath, JSON.stringify(data, null, 2));
-    console.log(`Created output file: ${outputPath}`);
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+    console.log(`Created output file: ${filePath}`);
     
     for (const item of data) {
       if (item.company?.website) {
@@ -165,14 +166,14 @@ async function processJsonFile(filePath: string): Promise<void> {
           item.company.contactInfo = contactInfo;
           
           // Write the updated data after each website is processed
-          await fs.writeFile(outputPath, JSON.stringify(data, null, 2));
-          console.log(`Updated ${outputPath} with results for ${item.company.name}`);
+          await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+          console.log(`Updated ${filePath} with results for ${item.company.name}`);
         } catch (error) {
           console.error(`Failed to process ${item.company.website}: ${error instanceof Error ? error.message : String(error)}`);
           // Add empty contact info to indicate failure
           item.company.contactInfo = { emails: [], phones: [] };
           // Still write the file to maintain progress
-          await fs.writeFile(outputPath, JSON.stringify(data, null, 2));
+          await fs.writeFile(filePath, JSON.stringify(data, null, 2));
         }
         
         // Add a small delay between requests to be nice to servers
@@ -186,21 +187,25 @@ async function processJsonFile(filePath: string): Promise<void> {
   }
 }
 
-// Example usage
 async function main() {
-  const jsonFiles = await fs.readdir('.');
-  const resultFiles = jsonFiles.filter(file => 
-    file.startsWith('results_page_') && file.endsWith('.json')
-  );
-  
-  for (const file of resultFiles) {
-    console.log(`Processing ${file}...`);
-    await processJsonFile(file);
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
+    console.error('Please provide a filename as a command line argument');
+    console.error('Usage: ts-node contactScraper.ts <filename>');
+    process.exit(1);
   }
+
+  const filename = args[0];
+  if (!filename.startsWith('contacts_') || !filename.endsWith('.json')) {
+    console.error('Filename must start with "contacts_" and end with ".json"');
+    process.exit(1);
+  }
+
+  console.log(`Processing ${filename}...`);
+  await processJsonFile(filename);
 }
 
+// Mainline
 if (require.main === module) {
   main().catch(console.error);
 }
-
-export { extractContactInfo, processJsonFile }; 
