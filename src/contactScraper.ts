@@ -46,6 +46,30 @@ const SCRAPING_TIMEOUT = 60000;
 // Maximum number of concurrent pages to process
 const MAX_CONCURRENT_PAGES = 5;
 
+// Browser stealth configuration
+const STEALTH_CONFIG = {
+  userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  viewport: { width: 1920, height: 1080 },
+  deviceScaleFactor: 1,
+  isMobile: false,
+  hasTouch: false,
+  locale: 'en-US',
+  timezoneId: 'America/New_York',
+  permissions: ['geolocation'],
+  extraHTTPHeaders: {
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'DNT': '1'
+  }
+};
+
 // Simple mutex implementation
 class Mutex {
   private locked = false;
@@ -251,9 +275,38 @@ async function processBatch(
 }
 
 async function processJsonFile(filePath: string): Promise<void> {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--disable-site-isolation-trials'
+    ]
+  });
+  
   const pages = await Promise.all(
-    Array(MAX_CONCURRENT_PAGES).fill(null).map(() => browser.newPage())
+    Array(MAX_CONCURRENT_PAGES).fill(null).map(async () => {
+      const page = await browser.newPage();
+      
+      // Apply stealth configuration
+      await page.setExtraHTTPHeaders(STEALTH_CONFIG.extraHTTPHeaders);
+      await page.setViewportSize(STEALTH_CONFIG.viewport);
+      await page.addInitScript(`
+        // Override navigator properties
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        
+        // Add Chrome-specific properties
+        window.chrome = {
+          runtime: {},
+          loadTimes: function() {},
+          csi: function() {},
+          app: {}
+        };
+      `);
+
+      return page;
+    })
   );
 
   try {
@@ -284,29 +337,57 @@ async function processJsonFile(filePath: string): Promise<void> {
       error instanceof Error ? error.message : String(error)
     );
   } finally {
-    await browser.close();
+    console.log('Cleaning up browser resources...');
+    try {
+      // Close all pages first
+      await Promise.all(pages.map(page => page.close().catch(e => 
+        console.log(`Error closing page: ${e.message}`)
+      )));
+      console.log('All pages closed');
+      
+      // Then close the browser
+      await browser.close();
+      console.log('Browser closed successfully');
+    } catch (error) {
+      console.error('Error during cleanup:', error instanceof Error ? error.message : String(error));
+    }
   }
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  if (args.length === 0) {
-    console.error('Please provide a filename as a command line argument');
-    console.error('Usage: ts-node contactScraper.ts <filename>');
+  try {
+    const args = process.argv.slice(2);
+    if (args.length === 0) {
+      console.error('Please provide a filename as a command line argument');
+      console.error('Usage: ts-node contactScraper.ts <filename>');
+      process.exit(1);
+    }
+
+    const filename = args[0];
+    if (!filename.startsWith('contacts_') || !filename.endsWith('.json')) {
+      console.error('Filename must start with "contacts_" and end with ".json"');
+      process.exit(1);
+    }
+
+    console.log(`Processing ${filename}...`);
+    await processJsonFile(filename);
+    console.log('Script completed successfully');
+    
+    // Force exit after a short delay to ensure cleanup is complete
+    setTimeout(() => {
+      console.log('Forcing process exit.');
+      process.exit(0);
+    }, 1000);
+  } catch (error) {
+    console.error('Fatal error:', error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
-
-  const filename = args[0];
-  if (!filename.startsWith('contacts_') || !filename.endsWith('.json')) {
-    console.error('Filename must start with "contacts_" and end with ".json"');
-    process.exit(1);
-  }
-
-  console.log(`Processing ${filename}...`);
-  await processJsonFile(filename);
 }
 
 // Mainline
 if (require.main === module) {
-  main().catch(console.error);
+  main().catch((error) => {
+    console.error('Unhandled error:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }
