@@ -32,16 +32,57 @@ const PHONE_REGEX =
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
 // Maximum time to wait for a page to load (in milliseconds)
-const PAGE_LOAD_TIMEOUT = 10000;
+const PAGE_LOAD_TIMEOUT = 30000;
 
 // Maximum time to wait between retries (in milliseconds)
-const RETRY_DELAY = 2000;
+const RETRY_DELAY = 5000;
 
 // Maximum number of retries per URL
 const MAX_RETRIES = 2;
 
 // Maximum time to wait for the entire scraping process (in milliseconds)
-const SCRAPING_TIMEOUT = 30000;
+const SCRAPING_TIMEOUT = 60000;
+
+// Maximum number of concurrent pages to process
+const MAX_CONCURRENT_PAGES = 5;
+
+// Simple mutex implementation
+class Mutex {
+  private locked = false;
+  private queue: Array<() => void> = [];
+
+  async acquire(): Promise<void> {
+    if (!this.locked) {
+      this.locked = true;
+      return;
+    }
+
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+    });
+  }
+
+  release(): void {
+    if (this.queue.length > 0) {
+      const next = this.queue.shift();
+      if (next) next();
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
+// Create a mutex for file operations
+const fileMutex = new Mutex();
+
+async function safeWriteFile(filePath: string, data: any): Promise<void> {
+  await fileMutex.acquire();
+  try {
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+  } finally {
+    fileMutex.release();
+  }
+}
 
 async function extractContactInfo(
   page: any,
@@ -159,57 +200,79 @@ async function extractContactInfo(
   }
 }
 
+async function processBatch(
+  page: any,
+  items: LinkedInContact[],
+  filePath: string,
+  data: LinkedInContact[]
+): Promise<void> {
+  const promises = items.map(async (item) => {
+    if (!item.company?.website) return;
+
+    console.log(
+      `Processing ${item.company.name} (${item.company.website})...`
+    );
+
+    try {
+      const contactInfo = await Promise.race([
+        extractContactInfo(page, item.company.website),
+        new Promise<ContactInfo>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Scraping timeout')),
+            SCRAPING_TIMEOUT
+          )
+        ),
+      ]);
+
+      // Only update and save if we got some data
+      if (contactInfo.emails.length > 0 || contactInfo.phones.length > 0) {
+        item.company.contactInfo = contactInfo;
+        // Save progress only when we have actual data
+        await safeWriteFile(filePath, data);
+        console.log(
+          `Updated ${filePath} with results for ${item.company.name}`
+        );
+      } else {
+        console.log(
+          `No contact info found for ${item.company.name}`
+        );
+      }
+    } catch (error) {
+      console.error(
+        `Failed to process ${item.company.website}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      // Don't save empty contact info on errors
+    }
+  });
+
+  await Promise.all(promises);
+}
+
 async function processJsonFile(filePath: string): Promise<void> {
   const browser = await chromium.launch();
-  const page = await browser.newPage();
+  const pages = await Promise.all(
+    Array(MAX_CONCURRENT_PAGES).fill(null).map(() => browser.newPage())
+  );
 
   try {
     const json = await fs.readFile(filePath, 'utf-8');
     const data: LinkedInContact[] = JSON.parse(json);
 
-    for (const item of data) {
-      // Skip if contactInfo already exists
-      if (item.company?.contactInfo) {
-        console.log(
-          `Skipping ${item.company.name} - contact info already exists`
-        );
-        continue;
-      }
+    // Filter out items that already have contact info
+    const itemsToProcess = data.filter(
+      (item) => !item.company?.contactInfo && item.company?.website
+    );
 
-      if (item.company?.website) {
-        console.log(
-          `Processing ${item.company.name} (${item.company.website})...`
-        );
-
-        try {
-          // Add timeout for the entire scraping process
-          const contactInfo = await Promise.race([
-            extractContactInfo(page, item.company.website),
-            new Promise<ContactInfo>((_, reject) =>
-              setTimeout(
-                () => reject(new Error('Scraping timeout')),
-                SCRAPING_TIMEOUT
-              )
-            ),
-          ]);
-
-          // Add contact info to the item
-          item.company.contactInfo = contactInfo;
-        } catch (error) {
-          console.error(
-            `Failed to process ${item.company.website}: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          );
-          // Add empty contact info to indicate failure
-          item.company.contactInfo = { emails: [], phones: [] };
-        }
-        await fs.writeFile(filePath, JSON.stringify(data, null, 2));
-        console.log(
-          `Updated ${filePath} with results for ${item.company.name}`
-        );
-
-        // Add a small delay between requests to be nice to servers
+    // Process items in batches
+    for (let i = 0; i < itemsToProcess.length; i += MAX_CONCURRENT_PAGES) {
+      const batch = itemsToProcess.slice(i, i + MAX_CONCURRENT_PAGES);
+      const pageIndex = i % MAX_CONCURRENT_PAGES;
+      await processBatch(pages[pageIndex], batch, filePath, data);
+      
+      // Add a small delay between batches to be nice to servers
+      if (i + MAX_CONCURRENT_PAGES < itemsToProcess.length) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
