@@ -43,18 +43,19 @@ const MAX_RETRIES = 2;
 // Maximum time to wait for the entire scraping process (in milliseconds)
 const SCRAPING_TIMEOUT = 30000;
 
-async function extractContactInfo(url: string, retryCount = 0): Promise<ContactInfo> {
+async function extractContactInfo(
+  page: any,
+  url: string,
+  retryCount = 0
+): Promise<ContactInfo> {
   if (!url) {
     return { emails: [], phones: [] };
   }
 
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  
   try {
     // Set a shorter timeout and don't wait for networkidle
     await Promise.race([
-      page.goto(url, { 
+      page.goto(url, {
         waitUntil: 'domcontentloaded',
         timeout: PAGE_LOAD_TIMEOUT,
       }),
@@ -150,46 +151,50 @@ async function extractContactInfo(url: string, retryCount = 0): Promise<ContactI
       console.log(
         `Retrying ${url} (attempt ${retryCount + 1}/${MAX_RETRIES})...`
       );
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+      return extractContactInfo(page, url, retryCount + 1);
     }
-    
+
     return { emails: [], phones: [] };
-  } finally {
-    try {
-      await browser.close();
-    } catch (error) {
-      console.log(`Error closing browser for ${url}: ${error instanceof Error ? error.message : String(error)}`);
-    }
   }
 }
 
 async function processJsonFile(filePath: string): Promise<void> {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+
   try {
     const json = await fs.readFile(filePath, 'utf-8');
     const data: LinkedInContact[] = JSON.parse(json);
-    
-    // Initialize the output file with the original data
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
-    console.log(`Created output file: ${filePath}`);
-    
+
     for (const item of data) {
+      // Skip if contactInfo already exists
+      if (item.company?.contactInfo) {
+        console.log(
+          `Skipping ${item.company.name} - contact info already exists`
+        );
+        continue;
+      }
+
       if (item.company?.website) {
-        console.log(`Processing ${item.company.name} (${item.company.website})...`);
-        
+        console.log(
+          `Processing ${item.company.name} (${item.company.website})...`
+        );
+
         try {
           // Add timeout for the entire scraping process
           const contactInfo = await Promise.race([
-            extractContactInfo(item.company.website),
-            new Promise<ContactInfo>((_, reject) => 
-              setTimeout(() => reject(new Error('Scraping timeout')), SCRAPING_TIMEOUT)
-            )
+            extractContactInfo(page, item.company.website),
+            new Promise<ContactInfo>((_, reject) =>
+              setTimeout(
+                () => reject(new Error('Scraping timeout')),
+                SCRAPING_TIMEOUT
+              )
+            ),
           ]);
-          
+
           // Add contact info to the item
           item.company.contactInfo = contactInfo;
-          
-          // Write the updated data after each website is processed
-          await fs.writeFile(filePath, JSON.stringify(data, null, 2));
-          console.log(`Updated ${filePath} with results for ${item.company.name}`);
         } catch (error) {
           console.error(
             `Failed to process ${item.company.website}: ${
@@ -198,21 +203,25 @@ async function processJsonFile(filePath: string): Promise<void> {
           );
           // Add empty contact info to indicate failure
           item.company.contactInfo = { emails: [], phones: [] };
-          // Still write the file to maintain progress
-          await fs.writeFile(filePath, JSON.stringify(data, null, 2));
         }
-        
+        await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+        console.log(
+          `Updated ${filePath} with results for ${item.company.name}`
+        );
+
         // Add a small delay between requests to be nice to servers
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
-    
+
     console.log(`Finished processing ${filePath}`);
   } catch (error) {
     console.error(
       `Error processing file ${filePath}:`,
       error instanceof Error ? error.message : String(error)
     );
+  } finally {
+    await browser.close();
   }
 }
 
