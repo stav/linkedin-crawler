@@ -283,8 +283,10 @@ async function processJsonFile(filePath: string): Promise<void> {
     ]
   });
   
-  const pages = await Promise.all(
-    Array(MAX_CONCURRENT_PAGES).fill(null).map(async () => {
+  // Create a pool of pages with proper initialization
+  const pagePool: any[] = [];
+  for (let i = 0; i < MAX_CONCURRENT_PAGES; i++) {
+    try {
       const page = await browser.newPage();
       
       // Apply stealth configuration
@@ -305,9 +307,22 @@ async function processJsonFile(filePath: string): Promise<void> {
         };
       `);
 
-      return page;
-    })
-  );
+      // Initialize the page by visiting a simple page first
+      await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
+      pagePool.push(page);
+    } catch (error) {
+      console.error(`Failed to initialize page ${i + 1}:`, error instanceof Error ? error.message : String(error));
+      // If we can't initialize a page, we'll continue with fewer pages
+    }
+  }
+
+  if (pagePool.length === 0) {
+    console.error('Failed to initialize any pages. Exiting...');
+    await browser.close();
+    return;
+  }
+
+  console.log(`Successfully initialized ${pagePool.length} pages`);
 
   try {
     const json = await fs.readFile(filePath, 'utf-8');
@@ -319,14 +334,18 @@ async function processJsonFile(filePath: string): Promise<void> {
     );
 
     // Process items in batches
-    for (let i = 0; i < itemsToProcess.length; i += MAX_CONCURRENT_PAGES) {
-      const batch = itemsToProcess.slice(i, i + MAX_CONCURRENT_PAGES);
-      const pageIndex = i % MAX_CONCURRENT_PAGES;
-      await processBatch(pages[pageIndex], batch, filePath, data);
+    for (let i = 0; i < itemsToProcess.length; i += pagePool.length) {
+      const batch = itemsToProcess.slice(i, i + pagePool.length);
+      const promises = batch.map((item, index) => {
+        const page = pagePool[index % pagePool.length];
+        return processBatch(page, [item], filePath, data);
+      });
+      
+      await Promise.all(promises);
       
       // Add a small delay between batches to be nice to servers
-      if (i + MAX_CONCURRENT_PAGES < itemsToProcess.length) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (i + pagePool.length < itemsToProcess.length) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
 
@@ -340,7 +359,7 @@ async function processJsonFile(filePath: string): Promise<void> {
     console.log('Cleaning up browser resources...');
     try {
       // Close all pages first
-      await Promise.all(pages.map(page => page.close().catch(e => 
+      await Promise.all(pagePool.map(page => page.close().catch((e: Error) => 
         console.log(`Error closing page: ${e.message}`)
       )));
       console.log('All pages closed');
