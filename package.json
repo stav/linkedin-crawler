@@ -13,6 +13,8 @@
     "playwright": "^1.52.0"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.32.0",
+    "@typescript-eslint/parser": "^8.32.0",
     "bun-types": "latest"
   },
   "peerDependencies": {
