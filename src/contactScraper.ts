@@ -41,9 +41,6 @@ const RETRY_DELAY = 5000;
 // Maximum number of retries per URL
 const MAX_RETRIES = 2;
 
-// Maximum time to wait for the entire scraping process (in milliseconds)
-const SCRAPING_TIMEOUT = 60000;
-
 // Maximum number of concurrent pages to process
 const MAX_CONCURRENT_PAGES = 5;
 
@@ -235,52 +232,6 @@ async function extractContactInfo(
   }
 }
 
-async function processBatch(
-  page: any,
-  items: LinkedInContact[],
-  filePath: string,
-  data: LinkedInContact[]
-): Promise<void> {
-  const promises = items.map(async (item) => {
-    if (!item.company?.website) return;
-
-    logWithTimestamp(`Processing ${item.company.name} (${item.company.website})...`);
-
-    try {
-      const contactInfo = await Promise.race([
-        extractContactInfo(page, item.company.website),
-        new Promise<ContactInfo>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Scraping timeout')),
-            SCRAPING_TIMEOUT
-          )
-        ),
-      ]);
-
-      // Only update and save if we got some data
-      if (contactInfo.emails.length > 0 || contactInfo.phones.length > 0) {
-        item.company.contactInfo = contactInfo;
-        // Initialize crawledDateTime array if it doesn't exist
-        if (!item.crawledDateTime) {
-          item.crawledDateTime = [];
-        }
-        // Add current timestamp
-        item.crawledDateTime.push(getTimestamp());
-        // Save progress only when we have actual data
-        await safeWriteFile(filePath, data);
-        logWithTimestamp(`Updated ${filePath} with results for ${item.company.name}`);
-      } else {
-        logWithTimestamp(`No contact info found for ${item.company.name}`);
-      }
-    } catch (error) {
-      logWithTimestamp(`Failed to process ${item.company.website}: ${error instanceof Error ? error.message : String(error)}`);
-      // Don't save empty contact info on errors
-    }
-  });
-
-  await Promise.all(promises);
-}
-
 async function processJsonFile(filePath: string): Promise<void> {
   const startTime = Date.now();
   logWithTimestamp(`Starting to process ${filePath}...`);
@@ -322,7 +273,6 @@ async function processJsonFile(filePath: string): Promise<void> {
       pagePool.push(page);
     } catch (error) {
       logWithTimestamp(`Failed to initialize page ${i + 1}: ${error instanceof Error ? error.message : String(error)}`);
-      // If we can't initialize a page, we'll continue with fewer pages
     }
   }
 
@@ -343,21 +293,73 @@ async function processJsonFile(filePath: string): Promise<void> {
       (item) => !item.company?.contactInfo && item.company?.website
     );
 
-    // Process items in batches
-    for (let i = 0; i < itemsToProcess.length; i += pagePool.length) {
-      const batch = itemsToProcess.slice(i, i + pagePool.length);
-      const promises = batch.map((item, index) => {
-        const page = pagePool[index % pagePool.length];
-        return processBatch(page, [item], filePath, data);
-      });
-      
-      await Promise.all(promises);
-      
-      // Add a small delay between batches to be nice to servers
-      if (i + pagePool.length < itemsToProcess.length) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Create a queue of items to process
+    const queue = [...itemsToProcess];
+    const mutex = new Mutex();
+
+    // Function to process a single item
+    const processItem = async (page: any, item: LinkedInContact): Promise<void> => {
+      try {
+        logWithTimestamp(`Starting to process ${item.company.name} (${item.company.website})...`);
+        const contactInfo = await extractContactInfo(page, item.company.website);
+        
+        // Update the data with contact info
+        await mutex.acquire();
+        try {
+          const index = data.findIndex(d => d === item);
+          if (index !== -1) {
+            data[index].company.contactInfo = contactInfo;
+            // Initialize crawledDateTime array if it doesn't exist
+            if (!data[index].crawledDateTime) {
+              data[index].crawledDateTime = [];
+            }
+            // Add current timestamp
+            data[index].crawledDateTime.push(getTimestamp());
+            await safeWriteFile(filePath, data);
+            logWithTimestamp(`Successfully processed ${item.company.name} - Found ${contactInfo.emails.length} emails and ${contactInfo.phones.length} phones`);
+          }
+        } finally {
+          mutex.release();
+        }
+      } catch (error) {
+        logWithTimestamp(`Error processing ${item.company.website}: ${error instanceof Error ? error.message : String(error)}`);
       }
-    }
+    };
+
+    // Function to get next item from queue
+    const getNextItem = async (): Promise<LinkedInContact | null> => {
+      await mutex.acquire();
+      try {
+        const item = queue.shift();
+        if (item) {
+          logWithTimestamp(`Queue status: ${queue.length} items remaining`);
+        }
+        return item || null;
+      } finally {
+        mutex.release();
+      }
+    };
+
+    // Process items using the worker pool
+    const processQueue = async (page: any, workerId: number): Promise<void> => {
+      logWithTimestamp(`Worker ${workerId} started`);
+      while (true) {
+        const item = await getNextItem();
+        if (!item) {
+          logWithTimestamp(`Worker ${workerId} finished - no more items in queue`);
+          break;
+        }
+        
+        await processItem(page, item);
+        // Add a small delay between requests to be nice to servers
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    };
+
+    // Start all workers
+    const workers = pagePool.map((page, index) => processQueue(page, index + 1));
+    logWithTimestamp(`Starting ${workers.length} workers to process ${queue.length} items`);
+    await Promise.all(workers);
 
     const endTime = Date.now();
     const duration = (endTime - startTime) / 1000; // Convert to seconds
