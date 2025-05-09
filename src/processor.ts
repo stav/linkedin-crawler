@@ -10,52 +10,35 @@ class ContactProcessor {
   }
 
   async *gatherContacts(): AsyncGenerator<LinkedInContact> {
-    try {
-      // Read all files in the contacts directory
-      const files = await fs.promises.readdir(this.contactsDir);
+    // Read all files in the contacts directory
+    const files = await fs.promises.readdir(this.contactsDir);
+    // Filter for JSON files
+    const jsonFiles = files.filter((file) => file.endsWith('.json'));
+    console.log(`Found ${jsonFiles.length} JSON files to process`);
 
-      // Filter for JSON files
-      const jsonFiles = files.filter((file) => file.endsWith('.json'));
-
-      console.log(`Found ${jsonFiles.length} JSON files to process`);
-
-      // Process each JSON file
-      let processedCount = 0;
-      for (const file of jsonFiles) {
-        try {
-          const filePath = path.join(this.contactsDir, file);
-          const fileContent = await fs.promises.readFile(filePath, 'utf-8');
-          const contact: LinkedInContact = JSON.parse(fileContent);
-          yield contact;
-          processedCount++;
-          console.log(`Successfully processed ${file}`);
-        } catch (error) {
-          console.error(`Error processing file ${file}:`, error);
-        }
-      }
-
-      console.log(`Successfully processed ${processedCount} contacts`);
-    } catch (error) {
-      console.error('Error reading contacts directory:', error);
-      throw error;
+    // Yield each JSON file
+    let processedCount = 0;
+    for (const file of jsonFiles) {
+      const filePath = path.join(this.contactsDir, file);
+      const fileContent = await fs.promises.readFile(filePath, 'utf-8');
+      const contact: LinkedInContact = JSON.parse(fileContent);
+      yield contact;
+      processedCount++;
+      console.log(`Successfully processed ${file}`);
     }
+
+    console.log(`Successfully processed ${processedCount} contacts`);
   }
 }
 
 // Example usage
 async function main() {
   const processor = new ContactProcessor();
-  try {
-    let contactCount = 0;
-    for await (const contact of processor.gatherContacts()) {
-      contactCount++;
-      // TODO: Add your database operations here
-    }
-    console.log(`Processing complete! Processed ${contactCount} contacts`);
-  } catch (error) {
-    console.error('Failed to process contacts:', error);
-    process.exit(1);
+  let contactCount = 0;
+  for await (const contact of processor.gatherContacts()) {
+    contactCount++;
   }
+  console.log(`Processing complete! Processed ${contactCount} contacts`);
 }
 
 if (require.main === module) {
