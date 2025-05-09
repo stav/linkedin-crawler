@@ -1,10 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-
-interface Contact {
-    // We'll define the contact interface based on your JSON structure
-    [key: string]: any;
-}
+import type { LinkedInContact } from './types';
 
 class ContactProcessor {
     private readonly contactsDir: string;
@@ -13,7 +9,7 @@ class ContactProcessor {
         this.contactsDir = path.join(process.cwd(), 'data', 'contacts');
     }
 
-    async gatherContacts(): Promise<Contact[]> {
+    async gatherContacts(): Promise<LinkedInContact[]> {
         try {
             // Read all files in the contacts directory
             const files = await fs.promises.readdir(this.contactsDir);
@@ -24,12 +20,12 @@ class ContactProcessor {
             console.log(`Found ${jsonFiles.length} JSON files to process`);
 
             // Process each JSON file
-            const contacts: Contact[] = [];
+            const contacts: LinkedInContact[] = [];
             for (const file of jsonFiles) {
                 try {
                     const filePath = path.join(this.contactsDir, file);
                     const fileContent = await fs.promises.readFile(filePath, 'utf-8');
-                    const contact = JSON.parse(fileContent);
+                    const contact: LinkedInContact = JSON.parse(fileContent);
                     contacts.push(contact);
                     console.log(`Successfully processed ${file}`);
                 } catch (error) {

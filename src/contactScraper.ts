@@ -2,28 +2,7 @@ import { chromium } from 'playwright';
 import * as emailAddresses from 'email-addresses';
 import fs from 'fs/promises';
 import process from 'process';
-
-interface ContactInfo {
-  emails: string[];
-  phones: string[];
-}
-
-interface Company {
-  name: string;
-  url: string;
-  website: string;
-  contactInfo?: ContactInfo;
-}
-
-interface LinkedInContact {
-  name: string;
-  title: string;
-  company: Company;
-  location: string;
-  profileUrl: string;
-  page: number;
-  crawledDateTime?: string[];  // Array of ISO timestamps for each crawl
-}
+import type { ContactInfo, LinkedInContact } from './types';
 
 // Regular expression for phone numbers
 const PHONE_REGEX =
@@ -389,14 +368,14 @@ async function main() {
   try {
     const args = process.argv.slice(2);
     if (args.length === 0) {
-      logWithTimestamp('Please provide a filename as a command line argument');
-      logWithTimestamp('Usage: ts-node contactScraper.ts <filename>');
+      console.error('Please provide a filename as a command line argument');
+      console.error('Usage: ts-node contactScraper.ts <filename>');
       process.exit(1);
     }
 
     const filename = args[0];
-    if (!filename.startsWith('contacts_') || !filename.endsWith('.json')) {
-      logWithTimestamp('Filename must start with "contacts_" and end with ".json"');
+    if (!filename.endsWith('.json')) {
+      console.error('Filename must end with ".json"');
       process.exit(1);
     }
 
