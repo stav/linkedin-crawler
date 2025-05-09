@@ -317,9 +317,7 @@ export class LinkedInCrawler {
         );
 
         // Write results to file
-        const filePath = `results_page_${currentPage
-          .toString()
-          .padStart(3, '0')}.json`;
+        const filePath = `page_${currentPage.toString().padStart(3, '0')}.json`;
         await writeSearchResultsToFile(pageResults, filePath);
 
         // Extract company website URLs for results with company URLs
