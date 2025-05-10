@@ -8,13 +8,16 @@
   "scripts": {
     "start": "bun run src/main.ts",
     "contact": "bun run src/contactScraper.ts",
-    "process": "bun run src/processor.ts"
+    "process": "bun run src/processor.ts",
+    "migrate": "bun run src/migrateActivities.ts"
   },
   "dependencies": {
+    "airtable": "^0.12.2",
     "dotenv": "^16.5.0",
     "playwright": "^1.52.0"
   },
   "devDependencies": {
+    "@types/airtable": "^0.10.4",
     "@typescript-eslint/eslint-plugin": "^8.32.0",
     "@typescript-eslint/parser": "^8.32.0",
     "bun-types": "latest"
