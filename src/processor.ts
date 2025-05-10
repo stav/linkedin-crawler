@@ -32,7 +32,7 @@ const getPhones = (contact: LinkedInContact) => {
 
 const getEmails = (contact: LinkedInContact) => {
   return contact.company.contactInfo?.emails
-    .filter(email => !email.toLowerCase().includes('wixpress'))
+    .filter((email) => !email.toLowerCase().includes('wixpress'))
     .join(',')
     .replace(/"/g, '')
     .slice(0, 60);
@@ -79,29 +79,33 @@ class ContactProcessor {
   async exportToCsv(): Promise<void> {
     console.log('Exporting contacts to CSV');
 
-    const csvPath = path.join(process.cwd(), 'data', 'contacts.csv');
-    const csvHeader =
-      'Name,Title,Company Name,Phones,E-mails,Company URL,Company Website,Location,Profile URL,Page,Crawled Date\n';
+    // prettier-ignore
+    const fieldDefinitions = new Map<string, (c: LinkedInContact) => string>([
+      ['Name'        , (c: LinkedInContact) => `"${c.name.replace(/"/g, "'")}"`],
+      ['Title'       , (c: LinkedInContact) => `"${c.title.replace(/"/g, "'")}"`],
+      ['Organization', (c: LinkedInContact) => `"${c.company.name.replace(/"/g, "'")}"`],
+      ['Phones'      , (c: LinkedInContact) => `"${getPhones(c)}"`],
+      ['E-mails'     , (c: LinkedInContact) => `"${getEmails(c)}"`],
+      ['Location'    , (c: LinkedInContact) => `"${c.location.replace(/"/g, "'")}"`],
+      ['Heads'       , (c: LinkedInContact) => ''],
+      ['Stage'       , (c: LinkedInContact) => ''],
+      ['Company URL' , (c: LinkedInContact) => `"${c.company.url.replace(/"/g, "'")}"`],
+      ['Website'     , (c: LinkedInContact) => `"${c.company.website.replace(/"/g, "'")}"`],
+      ['Page'        , (c: LinkedInContact) => String(c.page)],
+    ]);
+
+    const csvHeader = Array.from(fieldDefinitions.keys()).join(',') + '\n';
 
     // Create the CSV file with headers
+    const csvPath = path.join(process.cwd(), 'data', 'contacts.csv');
     await fs.promises.writeFile(csvPath, csvHeader);
 
     let contactCount = 0;
     for await (const c of this.gatherContacts()) {
       const row =
-        [
-          `"${c.name.replace(/"/g, "'")}"`,
-          `"${c.title.replace(/"/g, "'")}"`,
-          `"${c.company.name.replace(/"/g, "'")}"`,
-          `"${getPhones(c)}"`,
-          `"${getEmails(c)}"`,
-          `"${c.company.url.replace(/"/g, "'")}"`,
-          `"${c.company.website.replace(/"/g, "'")}"`,
-          `"${c.location.replace(/"/g, "'")}"`,
-          `"${c.profileUrl.replace(/"/g, "'")}"`,
-          c.page,
-          c.crawledDateTime ? `"${c.crawledDateTime.join(';')}"` : '',
-        ].join(',') + '\n';
+        Array.from(fieldDefinitions.values())
+          .map((renderFn) => renderFn(c))
+          .join(',') + '\n';
 
       await fs.promises.appendFile(csvPath, row, { encoding: 'utf-8' });
       contactCount++;
