@@ -88,7 +88,7 @@ class ContactProcessor {
       ['E-mails'     , (c: LinkedInContact) => `"${getEmails(c)}"`],
       ['Location'    , (c: LinkedInContact) => `"${c.location.replace(/"/g, "'")}"`],
       ['Heads'       , (c: LinkedInContact) => ''],
-      ['Stage'       , (c: LinkedInContact) => ''],
+      ['Stage'       , (c: LinkedInContact) => '"Lead"'],
       ['Company URL' , (c: LinkedInContact) => `"${c.company.url.replace(/"/g, "'")}"`],
       ['Website'     , (c: LinkedInContact) => `"${c.company.website.replace(/"/g, "'")}"`],
       ['Page'        , (c: LinkedInContact) => String(c.page)],
@@ -100,11 +100,19 @@ class ContactProcessor {
     const csvPath = path.join(process.cwd(), 'data', 'contacts.csv');
     await fs.promises.writeFile(csvPath, csvHeader);
 
+    // Gather all contacts and filter out those without phones
+    const contacts: LinkedInContact[] = [];
+    for await (const contact of this.gatherContacts()) {
+      contacts.push(contact);
+    }
+    const contactsWithPhones = contacts.filter((c) => getPhones(c).length > 0);
+
+    // Write the contacts with phones to the CSV file
     let contactCount = 0;
-    for await (const c of this.gatherContacts()) {
+    for await (const contact of contactsWithPhones) {
       const row =
         Array.from(fieldDefinitions.values())
-          .map((renderFn) => renderFn(c))
+          .map((f) => f(contact))
           .join(',') + '\n';
 
       await fs.promises.appendFile(csvPath, row, { encoding: 'utf-8' });
